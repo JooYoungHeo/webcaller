@@ -5,6 +5,11 @@
   "license": "MIT",
   "dependencies": {
     "express": "^4.16.4",
-    "socket.io": "^2.2.0"
+    "socket.io": "^2.2.0",
+    "ws": "^6.1.4"
+  },
+  "scripts": {
+    "socketio": "nodemon app-socketio.js",
+    "ws": "nodemon app-ws.js"
   }
 }

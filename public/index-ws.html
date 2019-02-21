@@ -1,0 +1,161 @@
+<!DOCTYPE html>
+<html>
+<head>
+    <meta charset="UTF-8">
+    <title>Native WebSocket Example</title>
+<script src="https://code.jquery.com/jquery-1.11.1.js"></script>
+<script>
+    let localVideo;
+    let remoteVideo;
+    let localStream;
+    let pc = null;
+    let wsock;
+    let remoteSrc = null;
+
+    const STUN_CONF = 'NONE';
+
+    initialize = () => {
+        console.log("Initializing");
+         
+        localVideo = document.getElementById("localVideo");
+        remoteVideo = document.getElementById("remoteVideo");
+ 
+        resetStatus();
+        getUserMedia();
+        openChannel();
+         
+        $('#join').click(() => {
+            rtcStart();
+        });
+    }
+
+    resetStatus = () => {
+        setStatus('Initializing...');
+    }
+
+    openChannel = () => {
+        wsock = new WebSocket('ws://localhost:3000');
+
+        wsock.onopen = () => {
+            console.log('open');
+        }
+
+        wsock.onmessage = (msg) => {
+            console.log(msg);
+            console.log("S -> C : " + msg.data);
+
+            if (!pc) {
+                createPeerConnection();
+            }
+        }
+
+        wsock.onclose = e => {
+            console.log('closed');
+        }
+    }
+
+    getUserMedia = () => {
+        try {
+            navigator.webkitGetUserMedia({audio:true, video:true}, stream => {
+                console.log("User has granted access to local media.");
+                localVideo.style.opacity = 1;
+                localVideo.srcObject = stream;
+                localStream = stream;
+                pc.addStream(localStream);
+                console.log("Requested access to local media with new syntax.");
+            }, error => {
+                console.log("Failed to get access to local media. Error code was " + error.code);
+                alert("Failed to get access to local media. Error code was " + error.code + ".");
+            });
+        } catch (e) {
+            alert("webkitGetUserMedia() failed. Is the MediaStream flag enabled in about:flags?");
+            console.log("webkitGetUserMedia failed with exception: " + e.message);
+        }
+    }
+
+    createPeerConnection = () => {
+        try {
+            pc = new webkitRTCPeerConnection({ "iceServers": [{ "url": "stun:stun.l.google.com:19302" }] });
+            console.log('Created webkitRTCPeerConnection with config');
+        } catch (e) {
+            console.log("Failed to create webkitPeerConnection, exception: " + e.message);
+            alert("Cannot create PeerConnection object; Is the 'PeerConnection' flag enabled in about:flags?");
+            return;
+        }
+ 
+        pc.onconnecting = onSessionConnecting;
+        pc.onopen = onSessionOpened;
+        pc.onaddstream = onRemoteStreamAdded;
+        pc.onremovestream = onRemoteStreamRemoved;
+    }
+
+
+    rtcStart = () => {
+        setStatus("Connecting...");
+        console.log("Creating PeerConnection.");
+        createPeerConnection();
+
+        console.log("Adding local stream.");
+        
+        pc.addStream(localStream);
+    }
+
+    setStatus = (state) => {
+        footer.innerHTML = state;
+    }
+
+    onSignalingMessage = (message) => {
+        console.log('C->S: ' + message);
+        wsock.send(message);   
+    }
+
+    onSessionConnecting = message => {
+        console.log("Session connecting.");
+    }
+
+    onSessionOpened = message => {
+        console.log("Session opened.");
+    }
+
+    onRemoteStreamAdded = event => {
+        console.log("Remote stream added.");
+        let url = window.webkitURL.createObjectURL(event.stream);
+        remoteVideo.style.opacity = 1;
+        remoteVideo.src = url;
+        remoteSrc = url;
+        setStatus("<input type=\"button\" id=\"hangup\" value=\"Hang up\" onclick=\"onHangup()\" />");
+    }
+ 
+    onRemoteStreamRemoved = event => {
+        console.log("Remote stream removed.");
+    }
+ 
+    onHangup = () => {
+        console.log("Hanging up.");
+        localVideo.style.opacity = 0;
+        remoteVideo.style.opacity = 0;
+        pc.close();
+        pc = null;
+        setStatus("You have left the call.");
+    }
+</script>
+</head>
+<body onload="initialize();">
+    <div id="container">
+        <div id="local">
+            <video width="25%" height="25%" id="localVideo" autoplay="autoplay" style="opacity: 0; -webkit-transition-property: opacity; -webkit-transition-duration: 2s;">
+            </video>
+        </div>
+               
+        <div id="remote">
+            <video width="25%" height="25%" id="remoteVideo" autoplay="autoplay" style="opacity: 0; -webkit-transition-property: opacity; -webkit-transition-duration: 2s;">
+            </video>
+        </div>
+               
+        <div id="footer"></div>
+               
+    </div>
+               
+    <button id="join">join</button>
+</body>
+</html>

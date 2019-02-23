@@ -3,7 +3,7 @@ const app = require('express')();
 const http = require('http').createServer(app);
 
 app.get('/', (req, res) => {
-    res.sendFile(__dirname + '/public/index-ws.html');
+    res.sendFile(__dirname + '/public/index-pc.html');
 });
 
 http.listen(3000, () => {

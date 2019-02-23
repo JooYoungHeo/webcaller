@@ -1,0 +1,153 @@
+<!DOCTYPE html>
+<html>
+<head>
+    <meta charset="UTF-8">
+    <title>Native WebSocket Example</title>
+<script src="https://code.jquery.com/jquery-1.11.1.js"></script>
+<script>
+    $(document).ready(() => {
+        let localVideo = document.getElementById('localVideo');
+        let remoteVideo = document.getElementById('remoteVideo');
+        
+        let join = $('#join');
+        let call = $('#call');
+        let hangup = $('#hangup');
+
+        $(join).click(start);
+        $(call).click(doCall);
+        $(hangup).click(doHangup);
+
+        let pc;
+        let localStream;
+        let ws = new WebSocket("ws://localhost:3000");
+
+        ws.onopen = () => {
+            console.log('socket is connected');
+        }
+
+        ws.onmessage = (msg) => {
+            let data;
+
+            try {
+                data = JSON.parse(msg.data);
+            } catch (e) {
+                data = msg.data;
+            }
+            
+            if (data.type === 'offer') {
+                hangup.attr('disabled', false);
+
+                pc = new webkitRTCPeerConnection(null, iceCallback);
+
+                console.log('join : Created remote peer connection object pc');
+
+                pc.onaddstream = gotRemoteStream;
+                pc.addStream(localStream);
+
+                pc.setRemoteDescription(new RTCSessionDescription(data));
+                console.log('join : remote description 설정');
+            
+                let offer = pc.remoteDescription;
+                pc.createAnswer().then(answer => {
+                    pc.setLocalDescription(answer);
+                    console.log('join : Local Description 설정');
+                    
+                    ws.send(JSON.stringify({type: 'answer', sdp: answer.sdp}));
+                }).catch(err => {
+                    console.log(err);
+                });
+            } else if (data.type === 'answer') {
+                console.log('call : received answer');
+
+                pc.setRemoteDescription(new RTCSessionDescription(data));
+
+                console.log('call : Set remote Description');
+            } else if (data.type === 'candidate') {
+                console.log('received candidate');
+
+                pc.processIceMessage(new IceCandidate(data.label, data.candidate));
+            } else {
+                console.log('message type is wrong');
+            }
+        }
+
+        function start() {
+            console.log('start : getUserMedia 스트림 요청');
+            join.attr('disabled', true);
+            navigator.webkitGetUserMedia({audio: true, video: true}, gotStream, (e) => {console.log(e)});
+        }
+
+        function gotStream(stream) {
+            console.log('gotStream : getUserMedia 스트림 받음');
+            localVideo.srcObject = stream;
+            localStream = stream;
+            call.attr('disabled', false);
+        }
+
+        function doCall() {
+            call.attr('disabled', true);
+            hangup.attr('disabled', false);
+
+            console.log('call : Starting call');
+
+            if (localStream.videoTracks) console.log('call : Using Video device : ', localStream.videoTracks[0].label);
+
+            if (localStream.audioTracks) console.log('call : Using Audio device : ', localStream.audioTracks[0].label);
+
+            pc = new webkitRTCPeerConnection(null, iceCallback);
+            console.log('call : peerConnection 객체 생성');
+
+            pc.onaddstream = gotRemoteStream;
+
+            pc.addStream(localStream);
+            console.log('call : peerConnection 로컬 스트림 추가');
+
+            pc.createOffer({audio: true, video: true}).then(offer => {
+                console.log('call : Created offer');
+
+                pc.setLocalDescription(offer);
+                console.log('call : Set Local Description');
+
+                ws.send(JSON.stringify({type: 'offer', sdp: offer.sdp}));
+            }).catch(err => {console.log(err);});
+        }
+
+        function gotRemoteStream(e) {
+            remoteVideo.srcObject = e.stream;
+            console.log('Received remote stream');
+        }
+
+        function iceCallback(candidate, bMore) {
+            if (candidate) {
+                console.log('Local ICE candidate: ' + candidate.sdp);
+                pc.processIceMessage(candidate);
+
+                ws.send(JSON.stringify({type: 'candidate', label: candidate.label, candidate: candidate.sdp}));
+                console.log('candidate is sent');
+            }
+        }
+
+        function doHangup() {
+            console.log('call end');
+            pc.close();
+            pc = null;
+            hangup.attr('disabled', true);
+            call.attr('disabled', false);
+        }
+    });
+</script>
+</head>
+<body>
+    <video width="480px" height="360px" id="localVideo" autoplay="autoplay" style="border:1px solid black">
+    </video>
+
+    <video width="480px" height="360px" id="remoteVideo" autoplay="autoplay" style="border:1px solid black">
+    </video>
+
+    <br/>
+
+    <button id="join">join</button>
+    <button id="call" disabled>call</button>
+    <button id="hangup" disabled>hang up</button>
+</body>
+</html>

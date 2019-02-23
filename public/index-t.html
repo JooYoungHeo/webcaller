@@ -1,0 +1,207 @@
+<!DOCTYPE html>
+<html>
+<head>
+    <meta charset="UTF-8">
+    <title>RTCPEERConnection test</title>
+<script src="https://code.jquery.com/jquery-1.11.1.js"></script>
+<script>
+    $(document).ready(() => {
+        let localVideo = document.getElementById('localVideo');
+        let remoteVideo = document.getElementById('remoteVideo');
+        
+        let start = $('#start');
+        let call = $('#call');
+        let hangup = $('#hangup');
+
+        let localStream;
+        let startTime;
+        let pc1;
+        let pc2;
+        const offerOptions = {
+            offerToReceiveAudio: 1,
+            offerToReceiveVideo: 1
+        };
+
+        start.click(doStart);
+        call.click(doCall);
+        hangup.click(doHangup);
+
+        function getName(pc) {
+            return (pc === pc1) ? 'pc1' : 'pc2';
+        }
+
+        function getOtherPc(pc) {
+            return (pc === pc1) ? pc2 : pc1;
+        }
+        
+        async function doStart() {
+            console.log('requesting local stream');
+            start.attr('disabled', true);
+
+            try {
+                const stream = await navigator.mediaDevices.getUserMedia({audio: true, video: true});
+                console.log('received local stream');
+                localVideo.srcObject = stream;
+                localStream = stream;
+                call.attr('disabled', false);
+            } catch (e) {
+                alert(`getUserMedia() error: ${e.name}`);
+            }
+        }
+
+        function getSelectedSdpSemantics() {
+            return {};
+        }
+
+        async function doCall() {
+            call.attr('disabled', true);
+            hangup.attr('disabled', false);
+            console.log('start calling');
+            startTime = window.performance.now();
+            const config = getSelectedSdpSemantics();
+            console.log('RTCPeerConnection configuration:', config);
+            pc1 = new RTCPeerConnection(config);
+            console.log('Created local peer connection object pc1');
+            pc1.addEventListener('icecandidate', e => onIceCandidate(pc1, e));
+            pc2 = new RTCPeerConnection(config);
+            console.log('Created remote peer connection object pc2');
+            pc2.addEventListener('icecandidate', e => onIceCandidate(pc2, e));
+            pc1.addEventListener('iceconnectionstatechange', e => onIceStateChange(pc1, e));
+            pc2.addEventListener('iceconnectionstatechange', e => onIceStateChange(pc2, e));
+            pc2.addEventListener('track', gotRemoteStream);
+
+            localStream.getTracks().forEach(track => pc1.addTrack(track, localStream));
+            console.log('Added local stream to pc1');
+
+            try {
+                console.log('pc1 createOffer start');
+                const offer = await pc1.createOffer(offerOptions);
+                await onCreateOfferSuccess(offer);
+            } catch (e) {
+                onCreateSessionDescriptionError(e);
+            }
+        }
+
+        function onCreateSessionDescriptionError(error) {
+            console.log(`Failed to create session description: ${error.toString()}`);
+        }
+
+        async function onCreateOfferSuccess(desc) {
+            console.log(`Offer from pc1\n${desc.sdp}`);
+            console.log('pc1 setLocalDescription start');
+            try {
+                await pc1.setLocalDescription(desc);
+                onSetLocalSuccess(pc1);
+            } catch (e) {
+                onSetSessionDescriptionError();
+            }
+
+            console.log('pc2 setRemoteDescription start');
+            try {
+                await pc2.setRemoteDescription(desc);
+                onSetRemoteSuccess(pc2);
+            } catch (e) {
+                onSetSessionDescriptionError();
+            }
+
+            console.log('pc2 createAnswer start');
+            // Since the 'remote' side has no media stream we need
+            // to pass in the right constraints in order for it to
+            // accept the incoming offer of audio and video.
+            try {
+                const answer = await pc2.createAnswer();
+                await onCreateAnswerSuccess(answer);
+            } catch (e) {
+                onCreateSessionDescriptionError(e);
+            }
+        }
+
+        function onSetLocalSuccess(pc) {
+            console.log(`${getName(pc)} setLocalDescription complete`);
+        }
+
+        function onSetRemoteSuccess(pc) {
+            console.log(`${getName(pc)} setRemoteDescription complete`);
+        }
+
+        function onSetSessionDescriptionError(error) {
+            console.log(`Failed to set session description: ${error.toString()}`);
+        }
+
+        function gotRemoteStream(e) {
+            if (remoteVideo.srcObject !== e.streams[0]) {
+                remoteVideo.srcObject = e.streams[0];
+                console.log('pc2 received remote stream');
+            }
+        }
+
+        async function onCreateAnswerSuccess(desc) {
+            console.log(`Answer from pc2:\n${desc.sdp}`);
+            console.log('pc2 setLocalDescription start');
+            try {
+                await pc2.setLocalDescription(desc);
+                onSetLocalSuccess(pc2);
+            } catch (e) {
+                onSetSessionDescriptionError(e);
+            }
+            console.log('pc1 setRemoteDescription start');
+            try {
+                await pc1.setRemoteDescription(desc);
+                onSetRemoteSuccess(pc1);
+            } catch (e) {
+                onSetSessionDescriptionError(e);
+            }
+        }
+
+        async function onIceCandidate(pc, event) {
+            try {
+                await (getOtherPc(pc).addIceCandidate(event.candidate));
+                onAddIceCandidateSuccess(pc);
+            } catch (e) {
+                onAddIceCandidateError(pc, e);
+            }
+            console.log(`${getName(pc)} ICE candidate:\n${event.candidate ? event.candidate.candidate : '(null)'}`);
+        }
+
+        function onAddIceCandidateSuccess(pc) {
+            console.log(`${getName(pc)} addIceCandidate success`);
+        }
+
+        function onAddIceCandidateError(pc, error) {
+            console.log(`${getName(pc)} failed to add ICE Candidate: ${error.toString()}`);
+        }
+
+        function onIceStateChange(pc, event) {
+            if (pc) {
+                console.log(`${getName(pc)} ICE state: ${pc.iceConnectionState}`);
+                console.log('ICE state change event: ', event);
+            }
+        }
+
+        function doHangup() {
+            console.log('end calling');
+            pc1.close();
+            pc2.close();
+            pc1 = null;
+            pc2 = null;
+            hangup.attr('disabled', true);
+            call.attr('disabled', false);
+        }
+        
+    });
+</script>
+</head>
+<body>
+    <video width="480px" height="360px" id="localVideo" autoplay="autoplay" style="border:1px solid black">
+    </video>
+
+    <video width="480px" height="360px" id="remoteVideo" autoplay="autoplay" style="border:1px solid black">
+    </video>
+
+    <br/>
+
+    <button id="start">join</button>
+    <button id="call" disabled>call</button>
+    <button id="hangup" disabled>hang up</button>
+</body>
+</html>
